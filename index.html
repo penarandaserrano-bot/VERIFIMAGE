@@ -263,7 +263,7 @@
       document.body.style.overflow='';
     });
 
-    const KEYS={USERS:'verif_users_v2',SESSION:'verif_session_v2',USER_HIST:u=>`verif_hist_${u}_v2`,GLOBAL:'verif_global_results_v8'};
+    const KEYS={USERS:'verif_users_v2',SESSION:'verif_session_v2',USER_HIST:u=>`verif_hist_${u}_v2`,GLOBAL:'verif_global_results_v9'};
     function load(k,f){try{return JSON.parse(localStorage.getItem(k))??f}catch{return f}}
     function save(k,v){localStorage.setItem(k,JSON.stringify(v))}
     function trySave(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}
