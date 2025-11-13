@@ -86,7 +86,6 @@
   <div class="container">
     <header class="nav">
       <div class="brand" aria-label="Logotipo Verifimage">
-        <!-- Logotipo Verifimage -->
         <a href="https://ibb.co/q3YwQq2B" style="display: flex; align-items: center; text-decoration: none;">
           <img 
             src="https://i.ibb.co/tTp5rj1B/Chat-GPT-Image-11-nov-2025-09-19-35-p-m.png" 
@@ -264,7 +263,7 @@
       document.body.style.overflow='';
     });
 
-    const KEYS={USERS:'verif_users_v2',SESSION:'verif_session_v2',USER_HIST:u=>`verif_hist_${u}_v2`,GLOBAL:'verif_global_results_v6'};
+    const KEYS={USERS:'verif_users_v2',SESSION:'verif_session_v2',USER_HIST:u=>`verif_hist_${u}_v2`,GLOBAL:'verif_global_results_v7'};
     function load(k,f){try{return JSON.parse(localStorage.getItem(k))??f}catch{return f}}
     function save(k,v){localStorage.setItem(k,JSON.stringify(v))}
     function trySave(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}
@@ -688,9 +687,9 @@
       const natural = Math.round(0.45*hf + 0.30*entropy + 0.25*(100*flatStrong ? (1-flatStrong) : 1));
 
       let aux = 0;
-      if (!meta || meta.device === 'Sin datos') aux += 3;
-      if ((meta?.gps || 'No') === 'No') aux += 2;
-      if (aux > 8) aux = 8;
+      if (!meta || meta.device === 'Sin datos') aux += 2;
+      if ((meta?.gps || 'No') === 'No') aux += 1;
+      if (aux > 5) aux = 5;
 
       let ia;
       if (ilu >= 55) {
@@ -702,9 +701,11 @@
 
       if (meta && meta.device && meta.device !== 'Sin datos') {
         const dev = meta.device.toLowerCase();
+
         const isPhone = /(iphone|ipad|ipod|android|samsung|galaxy|xiaomi|redmi|huawei|motorola|moto|pixel|oneplus|oppo|vivo|realme|nokia|lg|sony)/.test(dev);
+
         if (isPhone && ia > 30) {
-          ia = 30;
+          ia = 30; // IA como máximo 30% → Humano mínimo 70%
         }
       }
 
