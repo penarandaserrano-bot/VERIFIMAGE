@@ -264,7 +264,7 @@
       document.body.style.overflow='';
     });
 
-    const KEYS={USERS:'verif_users_v2',SESSION:'verif_session_v2',USER_HIST:u=>`verif_hist_${u}_v2`,GLOBAL:'verif_global_results_v5'};
+    const KEYS={USERS:'verif_users_v2',SESSION:'verif_session_v2',USER_HIST:u=>`verif_hist_${u}_v2`,GLOBAL:'verif_global_results_v6'};
     function load(k,f){try{return JSON.parse(localStorage.getItem(k))??f}catch{return f}}
     function save(k,v){localStorage.setItem(k,JSON.stringify(v))}
     function trySave(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}
@@ -590,17 +590,102 @@
       const { score: ela, map } = await ELA_score(dataURL);
       lastELAData = map;
 
-      const hf      = laplacianHFScore(rgba, w, h);
-      const noise   = noiseVarScore(rgba, w, h);
-      const entr    = entropyY(rgba, w, h);
-      const blocky  = jpegBlockinessScore(rgba, w, h);
+      const edge = edgeVarianceScore(rgba, w, h);
 
-      const edge    = edgeVarianceScore(rgba, w, h);
-      const edgeInv = 100 - edge;
+      const hist = new Uint32Array(256);
+      for (let i = 0; i < rgba.length; i += 4) {
+        const y = Math.max(0, Math.min(255, Math.round(
+          0.2126 * rgba[i] + 0.7152 * rgba[i+1] + 0.0722 * rgba[i+2]
+        )));
+        hist[y]++;
+      }
+      const N = (rgba.length / 4) || 1;
+      let H = 0;
+      for (let i = 0; i < 256; i++) {
+        if (!hist[i]) continue;
+        const p = hist[i] / N;
+        H -= p * Math.log2(p);
+      }
+      const entropy = Math.max(0, Math.min(100, Math.round((H / 8) * 100)));
 
-      const ilu     = illustrationScore(rgba, w, h, meta);
+      const Y = new Float32Array(w*h);
+      for (let i = 0, j = 0; i < rgba.length; i += 4, j++) {
+        Y[j] = 0.2126 * rgba[i] + 0.7152 * rgba[i+1] + 0.0722 * rgba[i+2];
+      }
+      let sumL = 0, sumL2 = 0, nL = 0;
+      for (let y = 1; y < h-1; y++) {
+        for (let x = 1; x < w-1; x++) {
+          const i = y*w + x;
+          const L = -4 * Y[i] + Y[i-1] + Y[i+1] + Y[i-w] + Y[i+w];
+          sumL += Math.abs(L);
+          sumL2 += L*L;
+          nL++;
+        }
+      }
+      const meanL = sumL / nL;
+      const varL = Math.max(0, sumL2 / nL - meanL*meanL);
+      const hf = Math.max(0, Math.min(100, Math.round(100 * (1 - Math.exp(-varL / 1500))))));
 
-      const natural = Math.round(0.45*hf + 0.30*noise + 0.25*entr);
+      const seen = new Set();
+      for (let i = 0; i < rgba.length; i += 4) {
+        const r = Math.floor(rgba[i] / 32);
+        const g = Math.floor(rgba[i+1] / 32);
+        const b = Math.floor(rgba[i+2] / 32);
+        seen.add((r<<10) | (g<<5) | b);
+        if (seen.size > 256) break;
+      }
+      const palette = seen.size;
+      const palSmall = 1 - Math.min(1, palette / 96);
+
+      let flats = 0, totalPatch = 0;
+      const idx = (x,y) => 4*(y*w + x);
+      for (let y = 1; y < h-1; y += 2) {
+        for (let x = 1; x < w-1; x += 2) {
+          let m = 0, m2 = 0, n = 0;
+          for (let yy=-1; yy<=1; yy++) {
+            for (let xx=-1; xx<=1; xx++) {
+              const i = idx(x+xx, y+yy);
+              const yv = 0.2126*rgba[i] + 0.7152*rgba[i+1] + 0.0722*rgba[i+2];
+              m += yv; m2 += yv*yv; n++;
+            }
+          }
+          const vloc = m2/n - (m/n)*(m/n);
+          if (vloc < 35) flats++;
+          totalPatch++;
+        }
+      }
+      const flatRatio = totalPatch ? flats/totalPatch : 0;
+
+      let strong = 0, Nb = 0;
+      for (let y = 1; y < h-1; y += 2) {
+        for (let x = 1; x < w-1; x += 2) {
+          const i = y*w + x;
+          const gx = -Y[i-w-1]-2*Y[i-1]-Y[i+w-1] + Y[i-w+1]+2*Y[i+1]+Y[i+w+1];
+          const gy = -Y[i-w-1]-2*Y[i-w]-Y[i-w+1] + Y[i+w-1]+2*Y[i+w]+Y[i+w+1];
+          const mag = Math.hypot(gx, gy);
+          if (mag > 80) strong++;
+          Nb++;
+        }
+      }
+      const edgeDensity = Nb ? strong/Nb : 0;
+
+      const flatStrong = Math.min(1, flatRatio / 0.45);
+      const edgeSweet = (edgeDensity > 0.06 && edgeDensity < 0.35) ? 1 : 0;
+
+      const hasAlpha = (() => {
+        for (let i = 3; i < rgba.length; i += 4) if (rgba[i] < 255) return true;
+        return false;
+      })();
+      const isPNG = (meta?.type || '').includes('png');
+
+      let ilu = 0;
+      ilu += 45 * palSmall;
+      ilu += 35 * flatStrong;
+      ilu += 12 * edgeSweet;
+      if (hasAlpha || isPNG) ilu += 8;
+      ilu = Math.max(0, Math.min(100, Math.round(ilu)));
+
+      const natural = Math.round(0.45*hf + 0.30*entropy + 0.25*(100*flatStrong ? (1-flatStrong) : 1));
 
       let aux = 0;
       if (!meta || meta.device === 'Sin datos') aux += 3;
@@ -609,20 +694,17 @@
 
       let ia;
       if (ilu >= 55) {
-        ia = 0.30*ela + 0.20*edgeInv + 0.20*blocky + 0.25*ilu + 0.05*(100-natural) + aux;
+        ia = 0.30*ela + 0.20*(100-hf) + 0.25*ilu + 0.15*(100-entropy) + 0.10*(100-natural) + aux;
         if (ilu >= 70) ia = Math.max(ia, Math.round(0.8*ilu));
       } else {
-        ia = 0.45*ela + 0.35*(100-natural) + 0.15*blocky + 0.05*edgeInv + aux;
+        ia = 0.50*ela + 0.25*(100-natural) + 0.15*(100-entropy) + 0.10*(100-edge) + aux;
       }
 
-      
       if (meta && meta.device && meta.device !== 'Sin datos') {
         const dev = meta.device.toLowerCase();
-
         const isPhone = /(iphone|ipad|ipod|android|samsung|galaxy|xiaomi|redmi|huawei|motorola|moto|pixel|oneplus|oppo|vivo|realme|nokia|lg|sony)/.test(dev);
-
         if (isPhone && ia > 30) {
-          ia = 30; 
+          ia = 30;
         }
       }
 
